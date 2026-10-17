@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  internsafe-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: internsafe-tinyfish-agent
+    ports:
+      - "8000:8000"
+    environment:
+      - TINYFISH_API_KEY=${TINYFISH_API_KEY:-demo_key}
+      - USE_LIVE_TINYFISH=${USE_LIVE_TINYFISH:-false}
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
