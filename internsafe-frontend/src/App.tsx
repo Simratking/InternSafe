@@ -57,14 +57,13 @@ import {
 } from './types';
 
 const DEFAULT_PROFILE: StudentProfile = {
-  name: 'Bhanu Vijay Singh',
+  name: 'Demo Student',
   university: 'GGSIPU (USICT)',
   degree: 'B.Tech CSE-AI (1st Year)',
   secondary_track: 'BS in Data Science & Applications',
   skills: ['C++', 'Python', 'DSA', 'AI/ML', 'FastAPI'],
-  github: 'https://github.com/bhanuvijaysingh',
-  resume_url: 'https://drive.google.com/file/d/bhanu-vijay-singh-resume',
-  email: 'bhanu.usict@ipu.ac.in',
+  github: 'https://github.com/demo-student',
+  resume_url: 'https://example.com/resume.pdf',
 };
 
 // Trust Score Color Scale Helper (80-100 Green, 60-79 Amber, 40-59 Orange, 0-39 Red)
