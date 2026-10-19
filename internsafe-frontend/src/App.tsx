@@ -434,6 +434,28 @@ useEffect(() => {
   const [scamEmail, setScamEmail] = useState('hr.technovaglobal@gmail.com');
   const [scamLoading, setScamLoading] = useState(false);
   const [scamResult, setScamResult] = useState<ScamCheckResponse | null>(null);
+  useEffect(() => {
+  const raw = new URLSearchParams(window.location.search).get('scam');
+  if (!raw) return;
+  try {
+    const bin = atob(raw);
+    const json = new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+    const p = JSON.parse(json);
+    setScamResult({
+      run_id: 'shared-report',
+      trust_score: p.s,
+      trust_label: p.l,
+      recommended_action: p.a,
+      community_matches: p.m ?? 0,
+      red_flags: p.f ?? [],
+      credits_used: 0,
+    });
+    setActivePage('scam-detector');
+    window.history.replaceState({}, '', window.location.pathname);
+  } catch {
+    /* ignore a malformed link */
+  }
+}, []);
   const [expandedFlags, setExpandedFlags] = useState<Record<number, boolean>>({ 0: true, 1: true });
 
   const loadScamExample = (preset: 'whatsapp_fee' | 'fake_mnc' | 'legit_post') => {
@@ -1926,6 +1948,37 @@ useEffect(() => {
                           <p className="text-sm font-medium text-white">
                             {scamResult.recommended_action}
                           </p>
+                        </div>
+
+                        {/* Export / Share */}
+                        <div className="flex gap-2 pt-1 print:hidden">
+                          <button
+                            type="button"
+                            onClick={() => window.print()}
+                            className="flex-1 py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm font-medium text-slate-200 transition-colors"
+                          >
+                            Download PDF Report
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const payload = {
+                                s: scamResult.trust_score,
+                                l: scamResult.trust_label,
+                                a: scamResult.recommended_action,
+                                m: scamResult.community_matches,
+                                f: scamResult.red_flags,
+                              };
+                              const bytes = new TextEncoder().encode(JSON.stringify(payload));
+                              const encoded = btoa(String.fromCharCode(...bytes));
+                              const shareUrl = `${window.location.origin}/?scam=${encodeURIComponent(encoded)}`;
+                              navigator.clipboard.writeText(shareUrl);
+                              addToast('Shareable warning link copied to clipboard!', 'success');
+                            }}
+                            className="flex-1 py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm font-medium text-slate-200 transition-colors"
+                          >
+                            Copy Shareable Link
+                          </button>
                         </div>
 
                         {/* Community Matches Callout */}

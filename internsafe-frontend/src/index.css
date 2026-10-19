@@ -27,3 +27,9 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #334155;
 }
+@media print {
+  header, aside { display: none !important; }
+  html, body { background: #fff !important; filter: none !important; }
+  main { overflow: visible !important; }
+  * { color: #111 !important; background: transparent !important; box-shadow: none !important; }
+}
