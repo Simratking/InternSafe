@@ -160,6 +160,17 @@ const TrustScoreGauge: React.FC<{ score: number; size?: number }> = ({
   );
 };
 
+function Hint({ text }: { text: string }) {
+  return (
+    <span
+      title={text}
+      className="cursor-help text-slate-500 hover:text-slate-300 ml-1 select-none"
+    >
+      (?)
+    </span>
+  );
+}
+
 export function App() {
   // Navigation & UI Drawers
   const [activePage, setActivePage] = useState<PageId>('dashboard');
@@ -816,6 +827,7 @@ useEffect(() => {
             <button
               onClick={() => setStatusPopoverOpen((v) => !v)}
               className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 hover:border-slate-700 text-xs font-medium text-slate-300 transition"
+              title="Shows whether the backend, TinyFish agents and credits are available"
             >
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <span className="hidden sm:inline">System Status</span>
@@ -2001,6 +2013,7 @@ useEffect(() => {
                         <div className="space-y-2.5">
                           <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                             Detected Signals ({scamResult.red_flags.length})
+                            <Hint text="Each signal is a scam warning sign found in the text. Every one lowers the trust score. Click a card to see why it matters." />
                           </h4>
                           {scamResult.red_flags.map((rf, idx) => {
                             const isOpen = !!expandedFlags[idx];
@@ -2208,25 +2221,32 @@ useEffect(() => {
                             {
                               label: 'Recruiter email domain matches official website',
                               ok: verResult.domain_match,
+                              hint: 'Domain spoofing is when scammers use look-alike emails (e.g. hr@infosys-careers.com instead of @infosys.com). We compare the recruiter’s email domain with the company’s official website.',
                             },
                             {
                               label: 'Role listed on official careers page',
                               ok: verResult.careers_page_listing_found,
+                              hint: 'Real openings are almost always listed on the company’s own careers page. If it isn’t there, ask the recruiter why.',
                             },
                             {
                               label: 'LinkedIn company presence verified',
                               ok: verResult.company_profile.linkedin_verified,
+                              hint: 'A genuine company usually has an established LinkedIn page with employees and history.',
                             },
                             {
                               label: 'HTTPS / Active SSL certificate',
                               ok: verResult.company_profile.ssl_active,
+                              hint: 'HTTPS means the connection is encrypted and the certificate is valid. Scam sites often lack it, but having it alone does not prove a company is safe.',
                             },
                           ].map((row, i) => (
                             <div
                               key={i}
                               className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between"
                             >
-                              <span className="text-xs text-slate-200">{row.label}</span>
+                              <span className="text-xs text-slate-200">
+                                {row.label}
+                                <Hint text={row.hint} />
+                              </span>
                               {row.ok ? (
                                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-400">
                                   <CheckCircle2 className="w-4 h-4" /> Verified
