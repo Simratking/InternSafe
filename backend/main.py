@@ -1,14 +1,25 @@
 import os
 import re
 import uuid
+import asyncio
 import httpx
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start the background notice watcher when the server boots, stop it on shutdown
+    task = asyncio.create_task(notice_watcher_loop())
+    yield
+    task.cancel()
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="InternSafe — AI Scam Detector & Autonomous Opportunity Agent",
     description="Backend API powered by TinyFish Web Agents & Docker for AZINHACK '26",
     version="2.0.0"
@@ -158,6 +169,103 @@ class AutoFillRequest(BaseModel):
     form_url: str
     student_profile: StudentProfile
     simulate_timeout: bool = False
+
+
+# ==========================================
+# CAMPUS NOTICE FEED + BACKGROUND WATCHER
+# ==========================================
+
+def build_notices() -> List[Dict[str, Any]]:
+    """Single source of truth for notices (used by the endpoint AND the watcher).
+    Swap the body for a real TinyFish fetch later."""
+    return [
+        {
+            "id": "not_1",
+            "title": "USAR East Delhi Campus — AZINHACK '26 Official Notification",
+            "date": "21–22 Oct 2026",
+            "urgency": "High",
+            "category": "Hackathons & Circulars",
+            "summary": [
+                "24-Hour National Hackathon on Open Innovation at USAR, GGSIPU EDC (9 AM – 7 PM).",
+                "Features ₹1,00,000+ prize pool, Docker & TinyFish sponsorships, and $13 free TinyFish credits."
+            ],
+            "markdown_preview": "# AZINHACK '26\n**Venue:** USAR, GGSIPU East Delhi Campus\n**Dates:** 21-22 Oct 2026\n**Theme:** Open Innovation\n**Perks:** $13 Free TinyFish Credits + Sponsor Merch."
+        },
+        {
+            "id": "not_2",
+            "title": "Training & Placement Cell Advisory: Beware of Paid Internship Scams",
+            "date": "17 Oct 2026",
+            "urgency": "High",
+            "category": "B.Tech CSE-AI",
+            "summary": [
+                "Students are advised never to pay registration or certificate fees for unverified WhatsApp internship offers.",
+                "Use official university notices and verified portals only."
+            ],
+            "markdown_preview": "# USICT Placement Cell Advisory\nDo not pay upfront fees for internship certificates..."
+        }
+    ]
+
+
+# Alerts shown in the frontend bell. Newest first.
+NOTICE_ALERTS: List[Dict[str, Any]] = []
+SEEN_NOTICE_IDS: set = set()
+
+WATCHER_INTERVAL_SECONDS = int(os.getenv("WATCHER_INTERVAL_SECONDS", str(6 * 60 * 60)))  # default: 6 hours
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
+
+async def send_telegram(text: str) -> bool:
+    """Optional: only sends if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set."""
+    if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": text},
+            )
+            return r.status_code == 200
+    except Exception:
+        return False
+
+
+async def check_notices_once(trigger: str = "cron") -> Dict[str, Any]:
+    """One watcher pass: fetch notices, raise an alert for each NEW High-urgency one."""
+    run_id = create_run_record("mcp__tinyfish__fetch_content (CRON)", "GGSIPU notice portal")
+    append_step(run_id, "cron", f"Background watcher triggered ({trigger}).")
+    notices = build_notices()
+    new_alerts = []
+    for n in notices:
+        if n["urgency"] == "High" and n["id"] not in SEEN_NOTICE_IDS:
+            SEEN_NOTICE_IDS.add(n["id"])
+            alert = {
+                "id": f"alert_{uuid.uuid4().hex[:6]}",
+                "notice_id": n["id"],
+                "title": n["title"],
+                "date": n["date"],
+                "urgency": n["urgency"],
+                "created_at": now_str(),
+                "run_id": run_id,
+                "telegram_sent": False,
+            }
+            alert["telegram_sent"] = await send_telegram(f"InternSafe alert: {n['title']} ({n['date']})")
+            NOTICE_ALERTS.insert(0, alert)
+            new_alerts.append(alert)
+    append_step(run_id, "complete", f"Checked {len(notices)} notices: {len(new_alerts)} new High-urgency alert(s).")
+    RUN_HISTORY[run_id]["status"] = "COMPLETED"
+    RUN_HISTORY[run_id]["output"] = new_alerts
+    return {"run_id": run_id, "checked": len(notices), "new_alerts": new_alerts}
+
+
+async def notice_watcher_loop():
+    await asyncio.sleep(3)  # let the server finish booting
+    while True:
+        try:
+            await check_notices_once("cron")
+        except Exception as e:
+            print(f"[watcher] error: {e}")
+        await asyncio.sleep(WATCHER_INTERVAL_SECONDS)
 
 
 # ==========================================
@@ -558,32 +666,7 @@ async def fetch_notices(req: FetchNoticesRequest):
     RUN_HISTORY[run_id]["status"] = "COMPLETED"
     append_step(run_id, "complete", "Notice parsing complete (200 OK).")
 
-    notices = [
-        {
-            "id": "not_1",
-            "title": "USAR East Delhi Campus — AZINHACK '26 Official Notification",
-            "date": "21–22 Oct 2026",
-            "urgency": "High",
-            "category": "Hackathons & Circulars",
-            "summary": [
-                "24-Hour National Hackathon on Open Innovation at USAR, GGSIPU EDC (9 AM – 7 PM).",
-                "Features ₹1,00,000+ prize pool, Docker & TinyFish sponsorships, and $13 free TinyFish credits."
-            ],
-            "markdown_preview": "# AZINHACK '26\n**Venue:** USAR, GGSIPU East Delhi Campus\n**Dates:** 21-22 Oct 2026\n**Theme:** Open Innovation\n**Perks:** $13 Free TinyFish Credits + Sponsor Merch."
-        },
-        {
-            "id": "not_2",
-            "title": "Training & Placement Cell Advisory: Beware of Paid Internship Scams",
-            "date": "17 Oct 2026",
-            "urgency": "High",
-            "category": "B.Tech CSE-AI",
-            "summary": [
-                "Students are advised never to pay registration or certificate fees for unverified WhatsApp internship offers.",
-                "Use official university notices and verified portals only."
-            ],
-            "markdown_preview": "# USICT Placement Cell Advisory\nDo not pay upfront fees for internship certificates..."
-        }
-    ]
+    notices = build_notices()
     RUN_HISTORY[run_id]["output"] = notices
     return {"run_id": run_id, "status": "COMPLETED", "credits_used": 0, "notices": notices}
 
@@ -691,3 +774,21 @@ async def cancel_run(run_id: str):
     RUN_HISTORY[run_id]["status"] = "CANCELLED"
     append_step(run_id, "cancel", "Emergency stop invoked via mcp__tinyfish__cancel_run. Browser terminated.")
     return {"run_id": run_id, "status": "CANCELLED"}
+
+
+# ==========================================
+# NOTICE ALERTS (background agent)
+# ==========================================
+
+@app.get("/api/alerts")
+async def get_alerts():
+    return {
+        "alerts": NOTICE_ALERTS,
+        "interval_seconds": WATCHER_INTERVAL_SECONDS,
+        "telegram_enabled": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID),
+    }
+
+@app.post("/api/alerts/check-now")
+async def check_alerts_now():
+    # Demo button: runs the same job the 6-hour cron runs
+    return await check_notices_once("manual")

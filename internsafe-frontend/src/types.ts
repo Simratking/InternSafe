@@ -258,3 +258,27 @@ export interface ReminderItem {
   days_left: number;
   created_at: string;
 }
+
+
+export interface NoticeAlert {
+  id: string;
+  notice_id: string;
+  title: string;
+  date: string;
+  urgency: string;
+  created_at: string;
+  run_id: string;
+  telegram_sent: boolean;
+}
+
+export interface AlertsResponse {
+  alerts: NoticeAlert[];
+  interval_seconds?: number;
+  telegram_enabled?: boolean;
+}
+
+export interface CheckAlertsResponse {
+  run_id: string;
+  checked: number;
+  new_alerts: NoticeAlert[];
+}

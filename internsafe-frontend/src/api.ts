@@ -1,4 +1,6 @@
 import {
+  AlertsResponse,
+  CheckAlertsResponse,
   ApplicationStatus,
   AutoFillRequest,
   AutoFillResponse,
@@ -1096,6 +1098,38 @@ export const api = {
         }
         return { run_id, status: 'CANCELLED' };
       }
+    );
+  },
+  async getAlerts(live: boolean) {
+    return requestWithFallback<AlertsResponse>(
+      '/api/alerts',
+      { method: 'GET' },
+      live,
+      () => ({ alerts: [] })
+    );
+  },
+
+  async checkAlertsNow(live: boolean) {
+    return requestWithFallback<CheckAlertsResponse>(
+      '/api/alerts/check-now',
+      { method: 'POST' },
+      live,
+      () => ({
+        run_id: makeRunId(),
+        checked: 2,
+        new_alerts: [
+          {
+            id: `alert_${Math.random().toString(16).slice(2, 8)}`,
+            notice_id: 'not_demo',
+            title: "USAR East Delhi Campus — AZINHACK '26 Official Notification",
+            date: '21–22 Oct 2026',
+            urgency: 'High',
+            created_at: nowTime(),
+            run_id: 'demo',
+            telegram_sent: false,
+          },
+        ],
+      })
     );
   },
 };
