@@ -33,6 +33,8 @@ import {
   Check,
   Trash2,
   SlidersHorizontal,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { api, API_BASE_URL, INITIAL_OPPORTUNITIES } from './api';
 import {
@@ -172,6 +174,16 @@ export function App() {
 
   // Mode & Backend Connectivity
   const [liveMode, setLiveMode] = useState<boolean>(true);
+  const [lightMode, setLightMode] = useState<boolean>(
+  () => localStorage.getItem('internsafe_theme') === 'light'
+);
+
+useEffect(() => {
+  document.documentElement.style.filter = lightMode
+    ? 'invert(0.92) hue-rotate(180deg)'
+    : '';
+  localStorage.setItem('internsafe_theme', lightMode ? 'light' : 'dark');
+}, [lightMode]);
   const [apiFallbackBanner, setApiFallbackBanner] = useState<boolean>(false);
   const [systemStatus, setSystemStatus] = useState<SystemStatusResponse | null>(null);
 
@@ -850,6 +862,16 @@ export function App() {
             <span className="text-slate-200">
               {liveMode ? 'Live API' : 'Demo Mode'}
             </span>
+          </button>
+
+          {/* Light / Dark Toggle */}
+          <button
+            onClick={() => setLightMode((v) => !v)}
+            className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition-colors"
+            title="Toggle light / dark mode"
+            aria-label="Toggle light / dark mode"
+          >
+            {lightMode ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
           </button>
 
           {/* Reminders / Notifications Bell */}
