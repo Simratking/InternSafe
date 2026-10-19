@@ -160,6 +160,9 @@ export interface CommunityReport {
   label: 'User-Reported Concern' | 'Verified Legitimate';
   upvotes: number;
   timestamp: string;
+  author?: string;
+  author_badge?: string;
+  author_points?: number;
 }
 
 export interface CommunityReportsResponse {
@@ -172,6 +175,29 @@ export interface CommunityReportCreate {
   recruiter_contact: string;
   tag: string;
   comment: string;
+  author_name?: string;
+  author_badge?: string;
+}
+
+export interface CommunityUpvoteResponse {
+  status: string;
+  report_id: string;
+  upvotes: number;
+  points_awarded: number;
+  message: string;
+}
+
+export interface BadgeTier {
+  id: string;
+  name: string;
+  min_points: number;
+  badge_icon: string;
+  description: string;
+}
+
+export interface BadgesResponse {
+  badge_tiers: BadgeTier[];
+  earning_rules: { action: string; points: number; icon: string }[];
 }
 
 export interface ScamPattern {

@@ -47,7 +47,7 @@ HEADERS = {
 RUN_HISTORY: Dict[str, Dict[str, Any]] = {}
 SAVED_OPPORTUNITIES: Dict[str, str] = {}  # opp_id -> application_status
 
-# Seeded Community Reports & Safety Layer Data
+# Seeded Community Reports & Safety Layer Data (with Gamified Badges & Points)
 COMMUNITY_REPORTS: List[Dict[str, Any]] = [
     {
         "id": "rep_101",
@@ -57,7 +57,10 @@ COMMUNITY_REPORTS: List[Dict[str, Any]] = [
         "comment": "Asked for ₹1,499 'training & laptop security deposit' via personal UPI after a 2-minute WhatsApp chat.",
         "label": "User-Reported Concern",
         "upvotes": 19,
-        "timestamp": "2 hours ago"
+        "timestamp": "2 hours ago",
+        "author": "Aman S. (USAR '26)",
+        "author_badge": "Campus Sentinel",
+        "author_points": 140
     },
     {
         "id": "rep_102",
@@ -67,7 +70,10 @@ COMMUNITY_REPORTS: List[Dict[str, Any]] = [
         "comment": "Official GGSIPU EDC hackathon on Unstop. Free registration and verified $13 TinyFish sponsor credits.",
         "label": "Verified Legitimate",
         "upvotes": 42,
-        "timestamp": "1 day ago"
+        "timestamp": "1 day ago",
+        "author": "Priya V. (USICT '25)",
+        "author_badge": "Campus Sentinel",
+        "author_points": 210
     },
     {
         "id": "rep_103",
@@ -77,7 +83,23 @@ COMMUNITY_REPORTS: List[Dict[str, Any]] = [
         "comment": "Sent an instant offer letter without any technical interview, then demanded ₹699 for completion certificate.",
         "label": "User-Reported Concern",
         "upvotes": 11,
-        "timestamp": "3 days ago"
+        "timestamp": "3 days ago",
+        "author": "Rohan M. (MAIT '27)",
+        "author_badge": "Verified Contributor",
+        "author_points": 45
+    },
+    {
+        "id": "rep_104",
+        "company_name": "Apex AI Global Ventures",
+        "recruiter_contact": "hiring@apex-ai-jobs.xyz",
+        "tag": "Received a fee request",
+        "comment": "Demanded ₹2,500 security deposit for an alleged remote prompt engineering internship. Free domain matched no real firm.",
+        "label": "User-Reported Concern",
+        "upvotes": 8,
+        "timestamp": "4 days ago",
+        "author": "Simrat S. (USAR '26)",
+        "author_badge": "Campus Sentinel",
+        "author_points": 185
     }
 ]
 
@@ -154,6 +176,8 @@ class CommunityReportCreate(BaseModel):
     recruiter_contact: str
     tag: str  # "Received a fee request", "Interview was legitimate", "Recruiter never responded", "Verified by Students"
     comment: str
+    author_name: Optional[str] = "Anonymous Student"
+    author_badge: Optional[str] = "Verified Contributor"
 
 class FetchNoticesRequest(BaseModel):
     url: str = "http://www.ipu.ac.in/notices.php"
@@ -608,6 +632,7 @@ async def get_community_reports():
 @app.post("/api/community/reports")
 async def create_community_report(req: CommunityReportCreate):
     is_positive = req.tag in ["Interview was legitimate", "Verified by Students"]
+    author_badge = req.author_badge or ("Campus Sentinel" if is_positive else "Verified Contributor")
     new_report = {
         "id": f"rep_{uuid.uuid4().hex[:6]}",
         "company_name": req.company_name,
@@ -616,10 +641,68 @@ async def create_community_report(req: CommunityReportCreate):
         "comment": req.comment,
         "label": "Verified Legitimate" if is_positive else "User-Reported Concern",
         "upvotes": 1,
-        "timestamp": "Just now"
+        "timestamp": "Just now",
+        "author": req.author_name or "Anonymous Student",
+        "author_badge": author_badge,
+        "author_points": 25
     }
     COMMUNITY_REPORTS.insert(0, new_report)
-    return {"status": "submitted", "report": new_report}
+    return {
+        "status": "submitted",
+        "report": new_report,
+        "points_awarded": 25,
+        "message": "Report registered to Community Safety Layer! +25 Trust Points awarded to your avatar."
+    }
+
+
+@app.post("/api/community/reports/{report_id}/upvote")
+async def upvote_community_report(report_id: str):
+    report = next((r for r in COMMUNITY_REPORTS if r["id"] == report_id), None)
+    if not report:
+        raise HTTPException(status_code=404, detail="Community report not found")
+    report["upvotes"] = report.get("upvotes", 0) + 1
+    return {
+        "status": "upvoted",
+        "report_id": report_id,
+        "upvotes": report["upvotes"],
+        "points_awarded": 10,
+        "message": "Upvoted legitimate review! +10 Trust Points awarded to your avatar."
+    }
+
+
+@app.get("/api/community/badges")
+async def get_community_badges():
+    return {
+        "badge_tiers": [
+            {
+                "id": "sentinel",
+                "name": "Campus Sentinel",
+                "min_points": 100,
+                "badge_icon": "🛡️",
+                "description": "Elite crowd-sourced safety sentinel who actively reports scams and vets peer reviews."
+            },
+            {
+                "id": "contributor",
+                "name": "Verified Contributor",
+                "min_points": 25,
+                "badge_icon": "✓",
+                "description": "Active student contributor reporting suspicious recruiters and upvoting verified reviews."
+            },
+            {
+                "id": "rookie",
+                "name": "Safety Trainee",
+                "min_points": 0,
+                "badge_icon": "🌱",
+                "description": "New member of the GGSIPU crowd-sourced safety network."
+            }
+        ],
+        "earning_rules": [
+            {"action": "Report a scam / safety concern", "points": 25, "icon": "🚨"},
+            {"action": "Upvote a legitimate review", "points": 10, "icon": "👍"},
+            {"action": "Verify a company recruiter domain", "points": 10, "icon": "🏢"},
+            {"action": "Scan suspicious offer letter or chat", "points": 10, "icon": "🛡️"}
+        ]
+    }
 
 
 @app.get("/api/community/scam-library")
