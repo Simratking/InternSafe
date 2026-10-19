@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useLayoutEffect, useId } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ShieldCheck,
   ShieldAlert,
@@ -161,13 +162,54 @@ const TrustScoreGauge: React.FC<{ score: number; size?: number }> = ({
 };
 
 function Hint({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const id = useId();
+
+  useLayoutEffect(() => {
+    if (!open || !btnRef.current) return;
+    const r = btnRef.current.getBoundingClientRect();
+    const half = 140; // half of tooltip max width
+    setPos({
+      top: r.bottom + 8,
+      left: Math.min(Math.max(r.left + r.width / 2, half + 8), window.innerWidth - half - 8),
+    });
+  }, [open]);
+
   return (
-    <span
-      title={text}
-      className="cursor-help text-slate-500 hover:text-slate-300 ml-1 select-none"
-    >
-      (?)
-    </span>
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        aria-label="More info"
+        aria-describedby={open ? id : undefined}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+        className="cursor-help text-slate-500 hover:text-orange-400 focus:text-orange-400 focus:outline-none ml-1 select-none"
+      >
+        (?)
+      </button>
+      {open &&
+        createPortal(
+          <div
+            id={id}
+            role="tooltip"
+            style={{ top: pos.top, left: pos.left, transform: 'translateX(-50%)' }}
+            className="fixed z-[9999] w-max max-w-[280px] px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-xs font-normal normal-case tracking-normal leading-relaxed text-slate-100 shadow-2xl pointer-events-none"
+          >
+            {text}
+          </div>,
+          document.body
+        )}
+    </>
   );
 }
 
@@ -2123,6 +2165,7 @@ useEffect(() => {
                     <div>
                       <label className="block text-xs font-medium text-slate-300 mb-1.5">
                         Company Name
+                        <Hint text="The company the recruiter claims to represent." />
                       </label>
                       <input
                         type="text"
@@ -2136,6 +2179,7 @@ useEffect(() => {
                     <div>
                       <label className="block text-xs font-medium text-slate-300 mb-1.5">
                         Official Website URL
+                        <Hint text="The company's real website, found yourself (e.g. via Google), not a link the recruiter sent." />
                       </label>
                       <input
                         type="text"
@@ -2149,6 +2193,7 @@ useEffect(() => {
                     <div>
                       <label className="block text-xs font-medium text-slate-300 mb-1.5">
                         Recruiter Email Address
+                        <Hint text="The address the recruiter contacted you from. Its domain should match the company's official website." />
                       </label>
                       <input
                         type="email"
@@ -2162,6 +2207,7 @@ useEffect(() => {
                     <div>
                       <label className="block text-xs font-medium text-slate-300 mb-1.5">
                         Job / Internship Title (Optional)
+                        <Hint text="Used to check whether this exact role is listed on the company's official careers page." />
                       </label>
                       <input
                         type="text"
