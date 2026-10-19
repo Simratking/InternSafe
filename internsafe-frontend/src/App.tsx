@@ -187,7 +187,7 @@ export function App() {
 
   // Persisted Student Profile
   const [profile, setProfile] = useState<StudentProfile>(() => {
-    const saved = localStorage.getItem('internsafe_profile');
+    const saved = localStorage.getItem('internsafe_profile_v2');
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -200,7 +200,7 @@ export function App() {
   const [newSkillInput, setNewSkillInput] = useState('');
 
   useEffect(() => {
-    localStorage.setItem('internsafe_profile', JSON.stringify(profile));
+    localStorage.setItem('internsafe_profile_v2', JSON.stringify(profile));
   }, [profile]);
 
   // Persisted Saved Opportunities Statuses
