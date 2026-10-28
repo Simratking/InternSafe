@@ -4,13 +4,10 @@ import {
   ApplicationStatus,
   AutoFillRequest,
   AutoFillResponse,
-  BadgeTier,
-  BadgesResponse,
   BatchCompareResponse,
   CommunityReport,
   CommunityReportCreate,
   CommunityReportsResponse,
-  CommunityUpvoteResponse,
   CompanyVerifyRequest,
   CompanyVerifyResponse,
   FetchNoticesResponse,
@@ -55,7 +52,7 @@ function recordLocalRun(
   return rec;
 }
 
-export const INITIAL_OPPORTUNITIES: Opportunity[] = [
+const RAW_OPPORTUNITIES: Opportunity[] = [
   {
     id: 'opp_1',
     title: 'AZINHACK ’26 — 24-Hour National Hackathon',
@@ -166,6 +163,26 @@ export const INITIAL_OPPORTUNITIES: Opportunity[] = [
   },
 ];
 
+function daysUntil(deadline: string): number | null {
+  // handles "20 Oct 2026" and "20 Oct 2026 (Final Call)"; returns null for "Rolling ..."
+  const d = new Date(deadline.replace(/\s*\(.*\)$/, ''));
+  if (isNaN(d.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.ceil((d.getTime() - today.getTime()) / 86400000);
+}
+
+export function normalizeOpportunities(list: Opportunity[]): Opportunity[] {
+  return list
+    .map((o) => {
+      const n = daysUntil(o.deadline);
+      return n === null ? o : { ...o, days_left: n };
+    })
+    .filter((o) => o.days_left >= 0); // drop anything already closed
+}
+
+export const INITIAL_OPPORTUNITIES: Opportunity[] = normalizeOpportunities(RAW_OPPORTUNITIES);
+
 let MOCK_REPORTS: CommunityReport[] = [
   {
     id: 'rep_101',
@@ -177,9 +194,6 @@ let MOCK_REPORTS: CommunityReport[] = [
     label: 'User-Reported Concern',
     upvotes: 19,
     timestamp: '2 hours ago',
-    author: "Aman S. (USAR '26)",
-    author_badge: 'Campus Sentinel',
-    author_points: 140,
   },
   {
     id: 'rep_102',
@@ -191,9 +205,6 @@ let MOCK_REPORTS: CommunityReport[] = [
     label: 'Verified Legitimate',
     upvotes: 42,
     timestamp: '1 day ago',
-    author: "Priya V. (USICT '25)",
-    author_badge: 'Campus Sentinel',
-    author_points: 210,
   },
   {
     id: 'rep_103',
@@ -205,23 +216,6 @@ let MOCK_REPORTS: CommunityReport[] = [
     label: 'User-Reported Concern',
     upvotes: 11,
     timestamp: '3 days ago',
-    author: "Rohan M. (MAIT '27)",
-    author_badge: 'Verified Contributor',
-    author_points: 45,
-  },
-  {
-    id: 'rep_104',
-    company_name: 'Apex AI Global Ventures',
-    recruiter_contact: 'hiring@apex-ai-jobs.xyz',
-    tag: 'Received a fee request',
-    comment:
-      'Demanded ₹2,500 security deposit for an alleged remote prompt engineering internship. Free domain matched no real firm.',
-    label: 'User-Reported Concern',
-    upvotes: 8,
-    timestamp: '4 days ago',
-    author: "Simrat S. (USAR '26)",
-    author_badge: 'Campus Sentinel',
-    author_points: 185,
   },
 ];
 
@@ -735,12 +729,7 @@ export const api = {
   },
 
   async createCommunityReport(payload: CommunityReportCreate, live: boolean) {
-    return requestWithFallback<{
-      status: string;
-      report: CommunityReport;
-      points_awarded?: number;
-      message?: string;
-    }>(
+    return requestWithFallback<{ status: string; report: CommunityReport }>(
       '/api/community/reports',
       { method: 'POST', body: JSON.stringify(payload) },
       live,
@@ -757,85 +746,10 @@ export const api = {
           label: isPos ? 'Verified Legitimate' : 'User-Reported Concern',
           upvotes: 1,
           timestamp: 'Just now',
-          author: payload.author_name || 'Active Student',
-          author_badge:
-            payload.author_badge ||
-            (isPos ? 'Campus Sentinel' : 'Verified Contributor'),
-          author_points: 25,
         };
         MOCK_REPORTS = [newRep, ...MOCK_REPORTS];
-        return {
-          status: 'submitted',
-          report: newRep,
-          points_awarded: 25,
-          message:
-            'Report registered to Community Safety Layer! +25 Trust Points awarded to your avatar.',
-        };
+        return { status: 'submitted', report: newRep };
       }
-    );
-  },
-
-  async upvoteCommunityReport(report_id: string, live: boolean) {
-    return requestWithFallback<CommunityUpvoteResponse>(
-      `/api/community/reports/${report_id}/upvote`,
-      { method: 'POST' },
-      live,
-      () => {
-        const rep = MOCK_REPORTS.find((r) => r.id === report_id);
-        if (rep) {
-          rep.upvotes = (rep.upvotes || 0) + 1;
-        }
-        return {
-          status: 'upvoted',
-          report_id,
-          upvotes: rep ? rep.upvotes : 1,
-          points_awarded: 10,
-          message:
-            'Upvoted legitimate review! +10 Trust Points awarded to your avatar.',
-        };
-      }
-    );
-  },
-
-  async getBadges(live: boolean) {
-    return requestWithFallback<BadgesResponse>(
-      '/api/community/badges',
-      { method: 'GET' },
-      live,
-      () => ({
-        badge_tiers: [
-          {
-            id: 'sentinel',
-            name: 'Campus Sentinel',
-            min_points: 100,
-            badge_icon: '🛡️',
-            description:
-              'Elite crowd-sourced safety sentinel who actively reports scams and vets peer reviews.',
-          },
-          {
-            id: 'contributor',
-            name: 'Verified Contributor',
-            min_points: 25,
-            badge_icon: '✓',
-            description:
-              'Active student contributor reporting suspicious recruiters and upvoting verified reviews.',
-          },
-          {
-            id: 'rookie',
-            name: 'Safety Trainee',
-            min_points: 0,
-            badge_icon: '🌱',
-            description:
-              'New member of the GGSIPU crowd-sourced safety network.',
-          },
-        ],
-        earning_rules: [
-          { action: 'Report a scam / safety concern', points: 25, icon: '🚨' },
-          { action: 'Upvote a legitimate review', points: 10, icon: '👍' },
-          { action: 'Verify a company recruiter domain', points: 10, icon: '🏢' },
-          { action: 'Scan suspicious offer letter or chat', points: 10, icon: '🛡️' },
-        ],
-      })
     );
   },
 

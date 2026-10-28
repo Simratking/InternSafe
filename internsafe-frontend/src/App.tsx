@@ -36,10 +36,8 @@ import {
   SlidersHorizontal,
   Sun,
   Moon,
-  ThumbsUp,
-  Award,
 } from 'lucide-react';
-import { api, API_BASE_URL, INITIAL_OPPORTUNITIES } from './api';
+import { api, API_BASE_URL, INITIAL_OPPORTUNITIES, normalizeOpportunities } from './api';
 import {
   AgentStep,
   ApplicationStatus,
@@ -48,7 +46,6 @@ import {
   CommunityReport,
   CompanyVerifyResponse,
   LocationType,
-  NoticeAlert,
   Opportunity,
   OpportunityType,
   PageId,
@@ -253,125 +250,6 @@ useEffect(() => {
     }, 4000);
   };
 
-  // Gamification: Trust Points + Badges (persisted in localStorage)
-  const [trustPoints, setTrustPoints] = useState<number>(() => {
-    const n = parseInt(localStorage.getItem('internsafe_trust_points') || '45', 10);
-    return Number.isFinite(n) ? n : 45;
-  });
-
-  const [upvotedReportIds, setUpvotedReportIds] = useState<string[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('internsafe_upvoted_reports') || '[]');
-    } catch {
-      return [];
-    }
-  });
-
-  const awardPoints = (pts: number, reason: string) => {
-    setTrustPoints((prev) => {
-      const next = prev + pts;
-      localStorage.setItem('internsafe_trust_points', String(next));
-      if (prev < 100 && next >= 100) {
-        addToast('🎉 Milestone Unlocked: Promoted to 🛡️ Campus Sentinel!', 'success');
-      } else if (prev < 25 && next >= 25) {
-        addToast('🎉 Milestone Unlocked: Promoted to ✓ Verified Contributor!', 'success');
-      }
-      return next;
-    });
-    addToast(`+${pts} Trust Points: ${reason}`, 'success');
-  };
-
-  const getBadgeInfo = (points: number) => {
-    if (points >= 100) {
-      return {
-        tier: 'sentinel',
-        label: 'Campus Sentinel',
-        icon: '🛡️',
-        cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 shadow-emerald-500/10',
-        cardBg: 'from-emerald-950/40 via-slate-900 to-[#111827]',
-        accent: 'text-emerald-400',
-        nextMilestone: null,
-        nextLabel: 'Max Level Achieved',
-        progressPercent: 100,
-        description: 'Elite student safety sentinel actively protecting campus peers from employment fraud.',
-      };
-    }
-    if (points >= 25) {
-      return {
-        tier: 'contributor',
-        label: 'Verified Contributor',
-        icon: '✓',
-        cls: 'bg-blue-500/15 text-blue-300 border-blue-500/40 shadow-blue-500/10',
-        cardBg: 'from-blue-950/40 via-slate-900 to-[#111827]',
-        accent: 'text-blue-400',
-        nextMilestone: 100,
-        nextLabel: 'Campus Sentinel',
-        progressPercent: Math.min(100, Math.round(((points - 25) / 75) * 100)),
-        description: 'Active student contributor reporting suspicious recruiters and verifying legitimate reviews.',
-      };
-    }
-    return {
-      tier: 'rookie',
-      label: 'Safety Trainee',
-      icon: '🌱',
-      cls: 'bg-slate-500/15 text-slate-300 border-slate-600/40 shadow-slate-500/10',
-      cardBg: 'from-slate-900 via-slate-900 to-[#111827]',
-      accent: 'text-slate-300',
-      nextMilestone: 25,
-      nextLabel: 'Verified Contributor',
-      progressPercent: Math.min(100, Math.round((points / 25) * 100)),
-      description: 'New member in the crowd-sourced campus safety network. Upvote reviews or report scams to level up.',
-    };
-  };
-
-  const currentBadge = getBadgeInfo(trustPoints);
-
-  // Background-agent alerts (polled from FastAPI /api/alerts)
-  const [alerts, setAlerts] = useState<NoticeAlert[]>([]);
-  const [seenAlertIds, setSeenAlertIds] = useState<string[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('internsafe_seen_alerts') || '[]');
-    } catch {
-      return [];
-    }
-  });
-  const unseenAlerts = alerts.filter((a) => !seenAlertIds.includes(a.id));
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      const res = await api.getAlerts(liveMode);
-      if (cancelled) return;
-      setAlerts((prev) => {
-        const ids = new Set(res.data.alerts.map((a) => a.id));
-        return [...res.data.alerts, ...prev.filter((p) => !ids.has(p.id) && res.fromMock)];
-      });
-    };
-    load();
-    const timer = setInterval(load, 30000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [liveMode]);
-
-  const handleCheckAlertsNow = async () => {
-    const res = await api.checkAlertsNow(liveMode);
-    const fresh = res.data.new_alerts;
-    if (fresh.length > 0) {
-      setAlerts((prev) => [...fresh, ...prev.filter((p) => !fresh.some((f) => f.id === p.id))]);
-      addToast(`Background agent found ${fresh.length} new High-urgency notice(s)`, 'warn');
-    } else {
-      addToast('Background agent: no new High-urgency notices', 'info');
-    }
-  };
-
-  const markAlertsSeen = () => {
-    const ids = alerts.map((a) => a.id);
-    setSeenAlertIds(ids);
-    localStorage.setItem('internsafe_seen_alerts', JSON.stringify(ids));
-  };
-
   // Persisted Student Profile
   const [profile, setProfile] = useState<StudentProfile>(() => {
     const saved = localStorage.getItem('internsafe_profile_v2');
@@ -544,7 +422,7 @@ useEffect(() => {
         liveMode,
         () => setApiFallbackBanner(true)
       );
-      setOpportunities(res.data.opportunities);
+      setOpportunities(normalizeOpportunities(res.data.opportunities));
       setOppLoading(false);
     }, 220);
     return () => clearTimeout(timer);
@@ -689,7 +567,6 @@ useEffect(() => {
       res.data.credits_used
     );
     setScamLoading(false);
-    awardPoints(10, 'scanned suspicious communication');
     addToast(`Scan finished: Trust Score ${res.data.trust_score}/100 (${res.data.trust_label})`, 'info');
   };
 
@@ -725,7 +602,6 @@ useEffect(() => {
       0
     );
     setVerLoading(false);
-    awardPoints(10, 'verified company recruiter domain');
     addToast(`Verified ${res.data.company_name} (${res.data.trust_score}/100)`, 'success');
   };
 
@@ -760,8 +636,6 @@ useEffect(() => {
         recruiter_contact: newRepContact || 'Not specified',
         tag: newRepTag,
         comment: newRepComment,
-        author_name: profile.name,
-        author_badge: currentBadge.label,
       },
       liveMode
     );
@@ -771,28 +645,6 @@ useEffect(() => {
     setNewRepContact('');
     setNewRepComment('');
     addToast('Report published to Community Safety Layer', 'success');
-    awardPoints(25, 'scam report submitted to Community Safety Layer');
-  };
-
-  const handleUpvoteReport = async (reportId: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    if (upvotedReportIds.includes(reportId)) {
-      addToast('You have already upvoted this community review', 'info');
-      return;
-    }
-
-    const res = await api.upvoteCommunityReport(reportId, liveMode);
-    setReports((prev) =>
-      prev.map((r) =>
-        r.id === reportId ? { ...r, upvotes: res.data.upvotes } : r
-      )
-    );
-
-    const nextUpvoted = [...upvotedReportIds, reportId];
-    setUpvotedReportIds(nextUpvoted);
-    localStorage.setItem('internsafe_upvoted_reports', JSON.stringify(nextUpvoted));
-
-    awardPoints(10, 'upvoted a legitimate community review');
   };
 
   // ==========================================
@@ -1101,54 +953,20 @@ useEffect(() => {
           {/* Reminders / Notifications Bell */}
           <div className="relative">
             <button
-              onClick={() => {
-                setNotificationsOpen((v) => !v);
-                if (!notificationsOpen) markAlertsSeen();
-              }}
+              onClick={() => setNotificationsOpen((v) => !v)}
               className="relative p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition"
               aria-label="Reminders and notifications"
             >
               <Bell className="w-4 h-4" />
-              {reminders.length + unseenAlerts.length > 0 && (
+              {reminders.length > 0 && (
                 <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-orange-500 text-slate-950 text-[10px] font-bold flex items-center justify-center">
-                  {reminders.length + unseenAlerts.length}
+                  {reminders.length}
                 </span>
               )}
             </button>
 
             {notificationsOpen && (
               <div className="absolute right-0 mt-2 w-80 rounded-2xl bg-[#111827] border border-slate-800 shadow-2xl p-4 z-50">
-                <div className="pb-3 mb-3 border-b border-slate-800">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-sm text-white">
-                      Background Agent Alerts ({alerts.length})
-                    </span>
-                    <button
-                      onClick={handleCheckAlertsNow}
-                      className="text-[11px] text-orange-400 hover:underline"
-                    >
-                      Check now
-                    </button>
-                  </div>
-                  {alerts.length === 0 ? (
-                    <p className="text-xs text-slate-400 py-3 text-center">
-                      No alerts yet. The agent re-checks GGSIPU notices automatically.
-                    </p>
-                  ) : (
-                    <div className="divide-y divide-slate-800/80 max-h-40 overflow-y-auto mt-2">
-                      {alerts.map((al) => (
-                        <div key={al.id} className="py-2">
-                          <p className="text-xs font-medium text-white">🚨 {al.title}</p>
-                          <p className="text-[11px] text-slate-400">
-                            {al.date} • found {al.created_at}
-                            {al.telegram_sent ? ' • Telegram sent' : ''}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
                 <div className="flex items-center justify-between pb-2.5 border-b border-slate-800">
                   <span className="font-semibold text-sm text-white">
                     Deadline Reminders ({reminders.length})
@@ -1163,13 +981,13 @@ useEffect(() => {
                   )}
                 </div>
                 {reminders.length === 0 ? (
-                  <p className="text-xs text-slate-400 py-3 text-center">
+                  <p className="text-xs text-slate-400 py-5 text-center">
                     No reminders set yet. Click the bell icon on any closing-soon opportunity.
                   </p>
                 ) : (
-                  <div className="divide-y divide-slate-800/80 max-h-52 overflow-y-auto mt-2">
+                  <div className="divide-y divide-slate-800/80 max-h-64 overflow-y-auto mt-2">
                     {reminders.map((rem) => (
-                      <div key={rem.id} className="py-2 flex items-start justify-between gap-2">
+                      <div key={rem.id} className="py-2.5 flex items-start justify-between gap-2">
                         <div>
                           <p className="text-xs font-medium text-white">{rem.title}</p>
                           <p className="text-[11px] text-slate-400">
@@ -1201,13 +1019,12 @@ useEffect(() => {
             <span>{activeRunId}</span>
           </button>
 
-          {/* Student Profile Avatar with Gamified Safety Badge */}
+          {/* Student Profile Avatar */}
           <button
             onClick={() => setProfileDrawerOpen(true)}
-            className="flex items-center gap-2 pl-1.5 pr-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 hover:border-orange-500/50 transition group"
-            title={`${profile.name} — ${currentBadge.label} (${trustPoints} Trust Points)`}
+            className="flex items-center gap-2.5 pl-2 pr-3 py-1 rounded-full bg-slate-900 border border-slate-800 hover:border-orange-500/50 transition"
           >
-            <div className="w-7 h-7 rounded-full bg-orange-500/20 border border-orange-500/40 text-orange-300 flex items-center justify-center text-xs font-bold shrink-0">
+            <div className="w-7 h-7 rounded-full bg-orange-500/20 border border-orange-500/40 text-orange-300 flex items-center justify-center text-xs font-bold">
               {profile.name
                 .split(' ')
                 .map((n) => n[0])
@@ -1216,13 +1033,6 @@ useEffect(() => {
             </div>
             <span className="hidden md:inline text-xs font-medium text-slate-200">
               {profile.name.split(' ')[0]}
-            </span>
-            <span
-              className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border flex items-center gap-1 shrink-0 ${currentBadge.cls}`}
-            >
-              <span>{currentBadge.icon}</span>
-              <span className="hidden sm:inline">{currentBadge.label}</span>
-              <span className="text-[10px] opacity-80 font-mono">· {trustPoints}</span>
             </span>
           </button>
         </div>
@@ -1284,9 +1094,9 @@ useEffect(() => {
             })}
           </nav>
 
-          {/* Compact Student Card in Sidebar with Gamified Badge */}
-          <div className="mt-8 p-4 rounded-2xl bg-[#111827]/90 border border-slate-800/90 space-y-2.5">
-            <div className="flex items-center justify-between">
+          {/* Compact Student Card in Sidebar */}
+          <div className="mt-8 p-4 rounded-2xl bg-[#111827]/90 border border-slate-800/90">
+            <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                 Active Profile
               </span>
@@ -1297,31 +1107,12 @@ useEffect(() => {
                 Edit
               </button>
             </div>
-            <div>
-              <p className="text-sm font-semibold text-white truncate">{profile.name}</p>
-              <p className="text-xs text-slate-400 truncate">{profile.degree}</p>
-              <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                {profile.university}
-              </p>
-            </div>
-
-            {/* Badge Pill in Sidebar */}
-            <div className="pt-2 border-t border-slate-800/80">
-              <div className="flex items-center justify-between gap-1">
-                <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 ${currentBadge.cls}`}
-                  title={`${currentBadge.label} — ${trustPoints} Trust Points`}
-                >
-                  <span>{currentBadge.icon}</span>
-                  <span>{currentBadge.label}</span>
-                </span>
-                <span className="text-[11px] font-bold text-orange-400 font-mono">
-                  {trustPoints} pts
-                </span>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-1 pt-1">
+            <p className="text-sm font-semibold text-white truncate">{profile.name}</p>
+            <p className="text-xs text-slate-400 truncate">{profile.degree}</p>
+            <p className="text-[11px] text-slate-500 truncate mt-0.5">
+              {profile.university}
+            </p>
+            <div className="flex flex-wrap gap-1 mt-3">
               {profile.skills.slice(0, 4).map((skill) => (
                 <span
                   key={skill}
@@ -2557,76 +2348,6 @@ useEffect(() => {
                   </button>
                 </div>
 
-                {/* Gamified Community Safety Layer Hero Card */}
-                <div className="p-6 rounded-2xl bg-gradient-to-br from-slate-900 via-[#131d2e] to-slate-900 border border-slate-800 shadow-xl relative overflow-hidden">
-                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
-                    <div className="space-y-2 max-w-xl">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold uppercase tracking-wider text-orange-400 flex items-center gap-1.5">
-                          <Award className="w-3.5 h-3.5" />
-                          Tier 2: Gamified Community Safety Badges
-                        </span>
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                          Active Rewards
-                        </span>
-                      </div>
-                      <h2 className="text-xl font-bold text-white">
-                        Protect Fellow Students & Earn Safety Badges
-                      </h2>
-                      <p className="text-xs text-slate-300 leading-relaxed">
-                        Crowd-sourced vigilance protects our campus. Report scams to earn <strong>+25 Trust Points</strong> or upvote legitimate peer experiences for <strong>+10 Trust Points</strong>. Unlock prestigious badges like <strong>Verified Contributor</strong> and <strong>Campus Sentinel</strong> next to your avatar!
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-400">
-                        <span className="px-2.5 py-1 rounded-lg bg-slate-950/60 border border-slate-800 text-slate-300">
-                          🚨 Report Scam: <strong className="text-orange-400">+25 pts</strong>
-                        </span>
-                        <span className="px-2.5 py-1 rounded-lg bg-slate-950/60 border border-slate-800 text-slate-300">
-                          👍 Upvote Review: <strong className="text-orange-400">+10 pts</strong>
-                        </span>
-                        <span className="px-2.5 py-1 rounded-lg bg-slate-950/60 border border-slate-800 text-slate-300">
-                          🛡️ Campus Sentinel: <strong className="text-emerald-400">100+ pts</strong>
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Active Student Gamification Card */}
-                    <div className="p-4 rounded-xl bg-slate-950/90 border border-slate-800/90 flex flex-col sm:flex-row items-center gap-4 shrink-0">
-                      <div className="w-14 h-14 rounded-2xl bg-orange-500/15 border border-orange-500/30 flex items-center justify-center text-3xl shadow-inner">
-                        {currentBadge.icon}
-                      </div>
-                      <div className="space-y-1 text-center sm:text-left">
-                        <div className="flex items-center justify-center sm:justify-start gap-2">
-                          <span className="text-xs text-slate-400 font-medium">Your Avatar Badge:</span>
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${currentBadge.cls}`}>
-                            {currentBadge.label}
-                          </span>
-                        </div>
-                        <div className="flex items-baseline justify-center sm:justify-start gap-2">
-                          <span className="text-2xl font-extrabold text-white">{trustPoints}</span>
-                          <span className="text-xs text-slate-400">Trust Points</span>
-                          {currentBadge.nextMilestone && (
-                            <span className="text-[11px] text-orange-400">
-                              ({currentBadge.nextMilestone - trustPoints} pts to {currentBadge.nextLabel})
-                            </span>
-                          )}
-                        </div>
-                        {currentBadge.nextMilestone ? (
-                          <div className="w-48 h-2 rounded-full bg-slate-800 overflow-hidden mt-1">
-                            <div
-                              className="h-full bg-gradient-to-r from-orange-500 to-emerald-400 transition-all duration-500"
-                              style={{ width: `${currentBadge.progressPercent}%` }}
-                            />
-                          </div>
-                        ) : (
-                          <p className="text-[11px] text-emerald-400 font-semibold">
-                            🛡️ Elite Tier Achieved • Top Campus Guardian
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
                 {/* Moderation Disclaimer Banner */}
                 <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2.5 text-xs text-slate-300">
                   <Info className="w-4 h-4 text-amber-400 shrink-0" />
@@ -2674,96 +2395,42 @@ useEffect(() => {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {reports.map((rep) => {
                       const isVerified = rep.label === 'Verified Legitimate';
-                      const hasUpvoted = upvotedReportIds.includes(rep.id);
-                      const repBadge = rep.author_badge || (isVerified ? 'Campus Sentinel' : 'Verified Contributor');
-                      const badgeCls =
-                        repBadge === 'Campus Sentinel'
-                          ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                          : repBadge === 'Verified Contributor'
-                          ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
-                          : 'bg-slate-700/40 text-slate-300 border-slate-700';
-                      const badgeIcon =
-                        repBadge === 'Campus Sentinel' ? '🛡️' : repBadge === 'Verified Contributor' ? '✓' : '🌱';
-
                       return (
                         <div
                           key={rep.id}
-                          className="p-6 rounded-2xl bg-[#111827] border border-slate-800/90 space-y-4 hover:border-slate-700/80 transition flex flex-col justify-between"
+                          className="p-6 rounded-2xl bg-[#111827] border border-slate-800/90 space-y-3"
                         >
-                          <div className="space-y-3">
-                            <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <h3 className="font-bold text-white text-base">
-                                  {rep.company_name}
-                                </h3>
-                                <p className="text-xs font-mono text-slate-400">
-                                  {rep.recruiter_contact}
-                                </p>
-                              </div>
-                              <span
-                                className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border shrink-0 ${
-                                  isVerified
-                                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                                    : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                                }`}
-                              >
-                                {isVerified ? 'Verified by students' : 'User-reported concern'}
-                              </span>
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <h3 className="font-bold text-white text-base">
+                                {rep.company_name}
+                              </h3>
+                              <p className="text-xs font-mono text-slate-400">
+                                {rep.recruiter_contact}
+                              </p>
                             </div>
-
-                            {/* Contributor Avatar & Safety Badge */}
-                            <div className="flex items-center gap-2 pt-1 pb-1 border-b border-slate-800/60">
-                              <div className="w-5 h-5 rounded-full bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-[10px] text-orange-300 font-bold shrink-0">
-                                {(rep.author || 'S')[0]}
-                              </div>
-                              <span className="text-xs font-medium text-slate-300">
-                                {rep.author || 'Student Contributor'}
-                              </span>
-                              <span
-                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 ${badgeCls}`}
-                              >
-                                <span>{badgeIcon}</span>
-                                <span>{repBadge}</span>
-                              </span>
-                              {rep.author_points && (
-                                <span className="text-[10px] text-slate-500 font-mono">
-                                  ({rep.author_points} pts)
-                                </span>
-                              )}
-                            </div>
-
-                            <p className="text-sm text-slate-200 leading-relaxed">
-                              &ldquo;{rep.comment}&rdquo;
-                            </p>
+                            <span
+                              className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border shrink-0 ${
+                                isVerified
+                                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                  : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                              }`}
+                            >
+                              {isVerified ? 'Verified by students' : 'User-reported concern'}
+                            </span>
                           </div>
+
+                          <p className="text-sm text-slate-200 leading-relaxed">
+                            &ldquo;{rep.comment}&rdquo;
+                          </p>
 
                           <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
                             <span className="px-2.5 py-0.5 rounded-md bg-slate-900 text-slate-300">
                               {rep.tag}
                             </span>
-                            <div className="flex items-center gap-3">
-                              <span>{rep.timestamp}</span>
-                              <button
-                                onClick={(e) => handleUpvoteReport(rep.id, e)}
-                                disabled={hasUpvoted}
-                                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition ${
-                                  hasUpvoted
-                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-default'
-                                    : 'bg-slate-900 hover:bg-orange-500/20 text-slate-300 hover:text-orange-300 border border-slate-800 hover:border-orange-500/40 cursor-pointer'
-                                }`}
-                                title={
-                                  hasUpvoted
-                                    ? 'You already upvoted this review'
-                                    : 'Upvote legitimate review (+10 Trust Points)'
-                                }
-                              >
-                                <ThumbsUp className={`w-3.5 h-3.5 ${hasUpvoted ? 'fill-emerald-400 text-emerald-400' : ''}`} />
-                                <span>{rep.upvotes} helpful</span>
-                                {!hasUpvoted && (
-                                  <span className="text-[10px] text-orange-400 font-bold ml-0.5">+10 pts</span>
-                                )}
-                              </button>
-                            </div>
+                            <span>
+                              {rep.timestamp} • ▲ {rep.upvotes} helpful
+                            </span>
                           </div>
                         </div>
                       );
@@ -3593,69 +3260,6 @@ useEffect(() => {
               </button>
             </div>
 
-            {/* Gamified Safety Badge & Trust Points Card */}
-            <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 via-[#121c2e] to-slate-900 border border-slate-800 space-y-3 shadow-lg">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-orange-400 flex items-center gap-1.5">
-                  <Award className="w-3.5 h-3.5" />
-                  Community Safety Status
-                </span>
-                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${currentBadge.cls}`}>
-                  {currentBadge.icon} {currentBadge.label}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-3.5 pt-1">
-                <div className="w-12 h-12 rounded-xl bg-orange-500/15 border border-orange-500/30 flex items-center justify-center text-2xl shrink-0">
-                  {currentBadge.icon}
-                </div>
-                <div className="space-y-0.5">
-                  <p className="text-sm font-bold text-white flex items-baseline gap-1.5">
-                    <span>{trustPoints}</span>
-                    <span className="text-xs text-slate-400 font-normal">Trust Points Earned</span>
-                  </p>
-                  <p className="text-[11px] text-slate-300 leading-tight">
-                    {currentBadge.description}
-                  </p>
-                </div>
-              </div>
-
-              {currentBadge.nextMilestone ? (
-                <div className="space-y-1 pt-1 border-t border-slate-800/80">
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-slate-400">
-                      Next Badge: <strong className="text-white">{currentBadge.nextLabel}</strong>
-                    </span>
-                    <span className="text-orange-400 font-medium">
-                      {currentBadge.nextMilestone - trustPoints} pts needed
-                    </span>
-                  </div>
-                  <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-orange-500 to-emerald-400 transition-all duration-500"
-                      style={{ width: `${currentBadge.progressPercent}%` }}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="pt-1 border-t border-slate-800/80">
-                  <p className="text-[11px] text-emerald-400 font-medium">
-                    🛡️ Highest Safety Tier! Displayed next to your avatar across the platform.
-                  </p>
-                </div>
-              )}
-
-              {/* Point Rules Summary */}
-              <div className="grid grid-cols-2 gap-1.5 pt-1 text-[10px] text-slate-400">
-                <div className="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800">
-                  🚨 Report Scam: <strong className="text-orange-400">+25 pts</strong>
-                </div>
-                <div className="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800">
-                  👍 Upvote Review: <strong className="text-orange-400">+10 pts</strong>
-                </div>
-              </div>
-            </div>
-
             <div className="space-y-4 text-sm">
               <div>
                 <label className="block text-xs text-slate-400 mb-1">Full Name</label>
@@ -3792,7 +3396,7 @@ useEffect(() => {
             className="relative w-full max-w-md rounded-2xl bg-[#111827] border border-slate-800 p-6 space-y-4 z-10"
           >
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-white">Submit Community Report</h3>
+              <h3 className="text-lg font-bold text-white">Submit Anonymous Report</h3>
               <button
                 type="button"
                 onClick={() => setReportModalOpen(false)}
@@ -3800,19 +3404,6 @@ useEffect(() => {
               >
                 <X className="w-5 h-5" />
               </button>
-            </div>
-
-            {/* Gamification Reward Callout */}
-            <div className="p-3.5 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-orange-500/20 text-orange-400 flex items-center justify-center shrink-0 text-lg">
-                🛡️
-              </div>
-              <div className="text-xs">
-                <p className="font-bold text-orange-300">Earn +25 Trust Points</p>
-                <p className="text-[11px] text-slate-300">
-                  Verified crowd contributions level up your avatar towards the <strong>Campus Sentinel</strong> badge!
-                </p>
-              </div>
             </div>
             <div>
               <label className="block text-xs text-slate-400 mb-1">Company Name</label>
