@@ -213,6 +213,283 @@ function Hint({ text }: { text: string }) {
   );
 }
 
+/* ================= SafeLink Sandbox ================= */
+interface LinkSignal {
+  label: string;
+  detail: string;
+  points: number;
+  severity: 'Critical' | 'High' | 'Medium';
+}
+interface LinkAnalysis {
+  ok: boolean;
+  host: string;
+  score: number;
+  signals: LinkSignal[];
+}
+
+const BRAND_DOMAINS: Record<string, string[]> = {
+  google: ['google.com'], zoom: ['zoom.us'], microsoft: ['microsoft.com', 'office.com', 'live.com'],
+  hackerrank: ['hackerrank.com'], linkedin: ['linkedin.com'], github: ['github.com', 'github.io'],
+  infosys: ['infosys.com'], tcs: ['tcs.com'], wipro: ['wipro.com'], naukri: ['naukri.com'],
+  internshala: ['internshala.com'], unstop: ['unstop.com'], gmail: ['gmail.com'], amazon: ['amazon.com', 'amazon.in'],
+};
+const SHORTENERS = ['bit.ly', 'tinyurl.com', 't.co', 'goo.gl', 'rb.gy', 'cutt.ly', 'is.gd', 'shorturl.at'];
+const RISKY_TLDS = ['.xyz', '.top', '.click', '.icu', '.buzz', '.tk', '.ml', '.ga', '.cf', '.gq', '.work', '.rest', '.zip'];
+const FREE_BUILDERS = ['blogspot.com', 'wixsite.com', 'weebly.com', '000webhostapp.com'];
+const SENSITIVE_WORDS = ['login', 'signin', 'verify', 'secure', 'password', 'otp', 'kyc', 'wallet', 'bank', 'payment'];
+
+function analyzeLink(raw: string): LinkAnalysis {
+  const input = raw.trim();
+  let url: URL;
+  try {
+    url = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`);
+  } catch {
+    return { ok: false, host: '', score: 0, signals: [] };
+  }
+  const signals: LinkSignal[] = [];
+  const add = (label: string, detail: string, points: number, severity: LinkSignal['severity']) =>
+    signals.push({ label, detail, points, severity });
+
+  const host = url.hostname.toLowerCase();
+  const full = (url.hostname + url.pathname).toLowerCase();
+  const isOn = (d: string) => host === d || host.endsWith('.' + d);
+
+  if (/^http:\/\//i.test(input))
+    add('Not using HTTPS', 'The connection is not encrypted. Real login or onboarding pages use HTTPS.', 20, 'High');
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host))
+    add('Raw IP address instead of a domain', 'Legitimate companies use proper domain names.', 35, 'Critical');
+  if (url.username || url.password)
+    add('Hidden "@" trick in the link', 'Text before an @ is ignored by browsers, so the real destination differs from what you see.', 30, 'Critical');
+  if (host.split('.').some((p) => p.startsWith('xn--')))
+    add('Look-alike characters in the domain', 'Punycode domains can imitate real brand names using similar-looking letters.', 30, 'Critical');
+  if (SHORTENERS.includes(host))
+    add('Shortened link hides the destination', 'You cannot see where it leads until you open it.', 20, 'High');
+  if (FREE_BUILDERS.some(isOn))
+    add('Company page on a free site builder', 'Real companies host careers and assessments on their own domains.', 20, 'High');
+  if (RISKY_TLDS.some((t) => host.endsWith(t)))
+    add('Domain ending often abused for scams', 'Cheap domain endings are favoured by throwaway scam sites.', 15, 'Medium');
+  for (const [brand, officials] of Object.entries(BRAND_DOMAINS)) {
+    if (host.includes(brand) && !officials.some(isOn)) {
+      add(`Pretends to be "${brand}"`, `The domain contains "${brand}" but is not an official ${brand} domain (${officials[0]}).`, 35, 'Critical');
+      break;
+    }
+  }
+  if ((host.match(/-/g) || []).length >= 3)
+    add('Many hyphens in the domain', 'Long hyphenated names are a common look-alike pattern.', 10, 'Medium');
+  if (host.split('.').length > 4)
+    add('Unusually many subdomains', 'Scammers stack subdomains to bury the real domain.', 10, 'Medium');
+  if (SENSITIVE_WORDS.some((w) => full.includes(w)))
+    add('Asks you to log in, verify or pay', 'Contains words like login, verify or payment. Real sites use these too, so judge it with the other signals.', 8, 'Medium');
+
+  const score = Math.max(4, Math.min(98, 95 - signals.reduce((s, x) => s + x.points, 0)));
+  return { ok: true, host, score, signals };
+}
+
+const SEVERITY_STYLE: Record<LinkSignal['severity'], string> = {
+  Critical: 'bg-red-500/15 text-red-300 border-red-500/30',
+  High: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+  Medium: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+};
+
+const SafeLinkSandbox: React.FC = () => {
+  const [link, setLink] = useState('');
+  const [result, setResult] = useState<LinkAnalysis | null>(null);
+  const examples = [
+    ['Fake Google Meet', 'http://meet-google-interview.xyz/login/verify'],
+    ['Fake HackerRank test', 'https://hackerrank-assessment.blogspot.com/otp-verify'],
+    ['Real Google Meet', 'https://meet.google.com/abc-defg-hij'],
+  ];
+  const theme = result && result.ok ? getTrustTheme(result.score) : null;
+
+  return (
+    <div className="p-6 rounded-2xl bg-[#0F1623] border border-slate-800 space-y-4">
+      <div>
+        <h3 className="text-lg font-bold text-white">SafeLink Sandbox</h3>
+        <p className="text-xs text-slate-400 mt-1">
+          Got a suspicious interview, assessment or onboarding link? Paste it here. We analyze the link itself, and nothing is opened in your browser.
+        </p>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input
+          value={link}
+          onChange={(e) => setLink(e.target.value)}
+          placeholder="https://..."
+          className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-sm font-mono text-slate-200 focus:outline-none focus:border-orange-500/50"
+        />
+        <button
+          type="button"
+          onClick={() => setResult(analyzeLink(link))}
+          disabled={!link.trim()}
+          className="px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 disabled:opacity-40 text-slate-950 text-sm font-semibold"
+        >
+          Analyze Link
+        </button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {examples.map(([label, url]) => (
+          <button
+            key={label}
+            type="button"
+            onClick={() => { setLink(url); setResult(analyzeLink(url)); }}
+            className="text-xs px-3 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300"
+          >
+            Try: {label}
+          </button>
+        ))}
+      </div>
+
+      {result && !result.ok && (
+        <p className="text-xs text-red-300">That does not look like a valid link.</p>
+      )}
+
+      {result && result.ok && theme && (
+        <div className="space-y-3 pt-2">
+          <div className={`flex items-center gap-4 p-4 rounded-xl border ${theme.bg} ${theme.border}`}>
+            <TrustScoreGauge score={result.score} size={84} />
+            <div className="min-w-0">
+              <p className={`text-sm font-bold ${theme.text}`}>{theme.label}</p>
+              <p className="text-xs text-slate-300 font-mono break-all">{result.host}</p>
+              <p className="text-xs text-slate-400 mt-1">
+                {result.signals.length === 0
+                  ? 'No red flags in the link itself. Still confirm the sender through an official channel.'
+                  : `${result.signals.length} warning sign(s) found in this link.`}
+              </p>
+            </div>
+          </div>
+
+          {result.signals.map((s) => (
+            <div key={s.label} className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-slate-100">{s.label}</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full border ${SEVERITY_STYLE[s.severity]}`}>{s.severity}</span>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">{s.detail}</p>
+            </div>
+          ))}
+
+          <p className="text-[11px] text-slate-500">
+            This checks the link’s structure only. To inspect the page content, paste the URL into the scam scanner above.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ================= Tailored Cover Letter ================= */
+const CoverLetterGenerator: React.FC<{ profile: StudentProfile; opp: Opportunity }> = ({ profile, opp }) => {
+  const [text, setText] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const build = () => {
+    const mine = profile.skills.map((s) => s.toLowerCase());
+    const matched = opp.skills_matched.filter((s) => mine.includes(s.toLowerCase()));
+    const skills = (matched.length ? matched : profile.skills).slice(0, 4);
+    const skillText =
+      skills.length > 1
+        ? `${skills.slice(0, -1).join(', ')} and ${skills[skills.length - 1]}`
+        : skills[0] ?? 'my technical skills';
+    const kind =
+      opp.opportunity_type === 'Hackathon' ? 'hackathon'
+      : opp.opportunity_type === 'Scholarship' ? 'scholarship'
+      : 'opportunity';
+
+    const para2 = [
+      `My strongest skills for this role are ${skillText}.`,
+      profile.secondary_track ? `Alongside my degree, I am also pursuing ${profile.secondary_track}.` : '',
+      profile.github ? `You can see my projects at ${profile.github}.` : '',
+    ].filter(Boolean).join(' ');
+
+    const para3 = [
+      'I would welcome the chance to contribute and learn from your team.',
+      profile.resume_url ? `My resume is available here: ${profile.resume_url}.` : '',
+      'Thank you for your time and consideration.',
+    ].filter(Boolean).join(' ');
+
+    setText(
+      `Dear ${opp.company} Hiring Team,\n\n` +
+      `I am ${profile.name}, a ${profile.degree} student at ${profile.university}, and I am excited to apply for ${opp.title}. ` +
+      `This ${kind} fits where I am in my studies and the skills I am building.\n\n` +
+      `${para2}\n\n${para3}\n\nSincerely,\n${profile.name}`
+    );
+    setCopied(false);
+  };
+
+  return (
+    <div className="space-y-3">
+      <button
+        type="button"
+        onClick={build}
+        className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors"
+      >
+        {text ? 'Regenerate Cover Letter' : 'Generate Cover Letter'}
+      </button>
+
+      {text && (
+        <div className="space-y-2">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={13}
+            className="w-full p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-200 leading-relaxed focus:outline-none focus:border-orange-500/50"
+          />
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] text-slate-500">Draft built from your profile and this listing. Personalize it before sending.</p>
+            <button
+              type="button"
+              onClick={() => { navigator.clipboard.writeText(text); setCopied(true); }}
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-slate-950 text-xs font-semibold"
+            >
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ================= Find Alumni ================= */
+const AlumniFinder: React.FC<{ company: string; university: string }> = ({ company, university }) => {
+  const [copied, setCopied] = useState(false);
+  const parts = university.split(/[()]/).map((s) => s.trim()).filter(Boolean);
+  const terms = parts.length ? parts : [university];
+  const query = `site:linkedin.com/in (${terms.map((t) => `"${t}"`).join(' OR ')}) "${company}"`;
+  const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+  const linkedinUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`${company} ${terms[0]}`)}`;
+  const message =
+    `Hi! I'm a ${university} student and I received an internship offer from ${company}. ` +
+    `I couldn't verify it online. Could you tell me if this is a genuine opportunity? Thank you!`;
+
+  return (
+    <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/30 space-y-3">
+      <div>
+        <p className="text-sm font-semibold text-white">Verify with an Alum</p>
+        <p className="text-xs text-slate-300 mt-1">
+          This company did not score as fully safe. Find {terms[0]} students or alumni who work there and ask them directly.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <a href={googleUrl} target="_blank" rel="noreferrer"
+           className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200">
+          Search alumni on Google
+        </a>
+        <a href={linkedinUrl} target="_blank" rel="noreferrer"
+           className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200">
+          Search on LinkedIn
+        </a>
+        <button type="button"
+          onClick={() => { navigator.clipboard.writeText(message); setCopied(true); }}
+          className="px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-xs font-semibold text-slate-950">
+          {copied ? 'Message copied!' : 'Copy intro message'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export function App() {
   // Navigation & UI Drawers
   const [activePage, setActivePage] = useState<PageId>('dashboard');
@@ -2118,6 +2395,11 @@ useEffect(() => {
             {/* ==========================================
                 PAGE 4: COMPANY & RECRUITER VERIFIER
                ========================================== */}
+            {activePage === 'scam-detector' && (
+              <div className="mt-8">
+                <SafeLinkSandbox />
+              </div>
+            )}
             {activePage === 'company-verifier' && (
               <div className="space-y-8">
                 <div>
@@ -2260,6 +2542,10 @@ useEffect(() => {
                         >
                           {verResult.summary}
                         </div>
+
+                        {verResult.trust_score < 80 && (
+                          <AlumniFinder company={verResult.company_name} university={profile.university} />
+                        )}
 
                         {/* Checklist Rows */}
                         <div className="space-y-2.5">
@@ -3220,6 +3506,8 @@ useEffect(() => {
                   <span>Verify Company</span>
                 </button>
               </div>
+
+              <CoverLetterGenerator profile={profile} opp={selectedOpportunity} />
 
               <a
                 href={selectedOpportunity.url}
