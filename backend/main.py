@@ -4,7 +4,7 @@ import uuid
 import asyncio
 import httpx
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta 
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +37,8 @@ app.add_middleware(
 TINYFISH_API_KEY = os.getenv("TINYFISH_API_KEY", "")
 TINYFISH_BASE_URL = os.getenv("TINYFISH_BASE_URL", "https://agent.tinyfish.ai/v1")
 USE_LIVE_TINYFISH = os.getenv("USE_LIVE_TINYFISH", "false").lower() == "true"
+def deadline_in(days: int) -> str:
+    return (datetime.now() + timedelta(days=days)).strftime("%d %b %Y")
 
 HEADERS = {
     "X-API-Key": TINYFISH_API_KEY,
