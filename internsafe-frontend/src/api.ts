@@ -52,6 +52,13 @@ function recordLocalRun(
   return rec;
 }
 
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function inDays(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return `${String(d.getDate()).padStart(2, '0')} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
 const RAW_OPPORTUNITIES: Opportunity[] = [
   {
     id: 'opp_1',
@@ -62,7 +69,7 @@ const RAW_OPPORTUNITIES: Opportunity[] = [
     location: 'Delhi NCR (On-Campus)',
     stipend_or_prize: '₹1,00,000+ Pool & $13 TinyFish Credits',
     eligibility: 'All B.Tech / BS Years (1st Year Friendly)',
-    deadline: '20 Oct 2026',
+    deadline: inDays(3),
     days_left: 3,
     skills_matched: ['Python', 'AI/ML', 'FastAPI', 'Docker'],
     match_score: 98,
@@ -80,7 +87,7 @@ const RAW_OPPORTUNITIES: Opportunity[] = [
     location: 'Remote',
     stipend_or_prize: '₹20,000 / month',
     eligibility: '1st / 2nd / 3rd Year CSE, CSE-AI, Data Science',
-    deadline: '23 Oct 2026',
+    deadline: inDays(6),
     days_left: 6,
     skills_matched: ['Python', 'AI/ML', 'FastAPI'],
     match_score: 94,
@@ -98,7 +105,7 @@ const RAW_OPPORTUNITIES: Opportunity[] = [
     location: 'Remote',
     stipend_or_prize: '$1,500 – $3,000 Stipend',
     eligibility: '18+ University Students',
-    deadline: '15 Nov 2026',
+    deadline: inDays(29),
     days_left: 29,
     skills_matched: ['C++', 'Python', 'DSA'],
     match_score: 89,
@@ -116,7 +123,7 @@ const RAW_OPPORTUNITIES: Opportunity[] = [
     location: 'All India',
     stipend_or_prize: '₹50,000 / year',
     eligibility: '1st Year Technical Degree Students',
-    deadline: '22 Oct 2026',
+    deadline: inDays(5),
     days_left: 5,
     skills_matched: ['B.Tech CSE-AI'],
     match_score: 91,
@@ -134,7 +141,7 @@ const RAW_OPPORTUNITIES: Opportunity[] = [
     location: 'Delhi NCR',
     stipend_or_prize: '₹35,000 / month',
     eligibility: 'B.Tech CSE / CSE-AI with strong DSA',
-    deadline: '02 Nov 2026',
+    deadline: inDays(16),
     days_left: 16,
     skills_matched: ['C++', 'DSA', 'Python'],
     match_score: 90,
@@ -152,7 +159,7 @@ const RAW_OPPORTUNITIES: Opportunity[] = [
     location: 'Remote',
     stipend_or_prize: '₹45,000 / month (Claims No Interview)',
     eligibility: 'Any Branch (Requests ₹1,499 Training Deposit)',
-    deadline: '19 Oct 2026',
+    deadline: inDays(2),
     days_left: 2,
     skills_matched: ['Python', 'AI/ML'],
     match_score: 62,

@@ -213,7 +213,25 @@ function Hint({ text }: { text: string }) {
   );
 }
 
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 /* ================= SafeLink Sandbox ================= */
+interface DeepScan {
+  trust_score: number;
+  trust_label: string;
+  signals: { label: string; detail: string; severity: 'Critical' | 'High' | 'Medium' }[];
+  page_inspected: boolean;
+  page_title?: string | null;
+  summary: string;
+}
 interface LinkSignal {
   label: string;
   detail: string;
@@ -291,8 +309,23 @@ const SEVERITY_STYLE: Record<LinkSignal['severity'], string> = {
   Medium: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
 };
 
-const SafeLinkSandbox: React.FC = () => {
+const SafeLinkSandbox: React.FC<{ live: boolean }> = ({ live }) => {
   const [link, setLink] = useState('');
+  const [deep, setDeep] = useState<DeepScan | null>(null);
+  const [deepLoading, setDeepLoading] = useState(false);
+  const [deepError, setDeepError] = useState('');
+  const runDeep = async () => {
+    setDeep(null);
+    setDeepError('');
+    setDeepLoading(true);
+    try {
+      setDeep(await postJson<DeepScan>('/api/safelink', { url: link }));
+    } catch {
+      setDeepError('Deep scan is unavailable right now. The link-structure check above still applies.');
+    } finally {
+      setDeepLoading(false);
+    }
+  };
   const [result, setResult] = useState<LinkAnalysis | null>(null);
   const examples = [
     ['Fake Google Meet', 'http://meet-google-interview.xyz/login/verify'],
@@ -319,12 +352,22 @@ const SafeLinkSandbox: React.FC = () => {
         />
         <button
           type="button"
-          onClick={() => setResult(analyzeLink(link))}
+          onClick={() => {setDeep(null);setResult(analyzeLink(link))}}
           disabled={!link.trim()}
           className="px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 disabled:opacity-40 text-slate-950 text-sm font-semibold"
         >
           Analyze Link
         </button>
+        {live && (
+          <button
+            type="button"
+            onClick={() => { setResult(analyzeLink(link)); runDeep(); }}
+            disabled={!link.trim() || deepLoading}
+            className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-100 text-sm font-semibold"
+          >
+            {deepLoading ? 'Scanning…' : 'Deep Scan (TinyFish)'}
+          </button>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -332,7 +375,7 @@ const SafeLinkSandbox: React.FC = () => {
           <button
             key={label}
             type="button"
-            onClick={() => { setLink(url); setResult(analyzeLink(url)); }}
+            onClick={() => { setDeep(null); setLink(url); setResult(analyzeLink(url)); }}
             className="text-xs px-3 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300"
           >
             Try: {label}
@@ -374,16 +417,49 @@ const SafeLinkSandbox: React.FC = () => {
           </p>
         </div>
       )}
+      {deepLoading && <p className="text-xs text-slate-400">Opening the link in TinyFish’s remote browser…</p>}
+      {deepError && <p className="text-xs text-red-300">{deepError}</p>}
+      {deep && (() => {
+        const t = getTrustTheme(deep.trust_score);
+        return (
+          <div className="space-y-3 pt-2">
+            <p className="text-xs font-semibold text-slate-300">
+              {deep.page_inspected
+                ? 'Deep scan: link and page content, read remotely by TinyFish'
+                : 'Deep scan: link only (the page could not be read)'}
+            </p>
+            <div className={`flex items-center gap-4 p-4 rounded-xl border ${t.bg} ${t.border}`}>
+              <TrustScoreGauge score={deep.trust_score} size={84} />
+              <div className="min-w-0">
+                <p className={`text-sm font-bold ${t.text}`}>{deep.trust_label}</p>
+                {deep.page_title && <p className="text-xs text-slate-300 truncate">{deep.page_title}</p>}
+                <p className="text-xs text-slate-400 mt-1">{deep.summary}</p>
+              </div>
+            </div>
+            {deep.signals.map((s) => (
+              <div key={s.label} className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-slate-100">{s.label}</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border ${SEVERITY_STYLE[s.severity]}`}>{s.severity}</span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">{s.detail}</p>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 };
 
 /* ================= Tailored Cover Letter ================= */
-const CoverLetterGenerator: React.FC<{ profile: StudentProfile; opp: Opportunity }> = ({ profile, opp }) => {
+const CoverLetterGenerator: React.FC<{ profile: StudentProfile; opp: Opportunity; live: boolean }> = ({ profile, opp, live }) => {
   const [text, setText] = useState('');
   const [copied, setCopied] = useState(false);
+  const [source, setSource] = useState<'gemini' | 'template' | 'local' | ''>('');
+  const [loading, setLoading] = useState(false);
 
-  const build = () => {
+  const buildLocal = () => {
     const mine = profile.skills.map((s) => s.toLowerCase());
     const matched = opp.skills_matched.filter((s) => mine.includes(s.toLowerCase()));
     const skills = (matched.length ? matched : profile.skills).slice(0, 4);
@@ -417,14 +493,38 @@ const CoverLetterGenerator: React.FC<{ profile: StudentProfile; opp: Opportunity
     setCopied(false);
   };
 
+  const generate = async () => {
+  setCopied(false);
+  if (!live) { buildLocal(); setSource('local'); return; }
+  setLoading(true);
+  try {
+    const r = await postJson<{ letter: string; source: 'gemini' | 'template' }>('/api/cover-letter', {
+      profile,
+      title: opp.title,
+      company: opp.company,
+      opportunity_type: opp.opportunity_type,
+      skills_matched: opp.skills_matched,
+      job_url: opp.url,
+    });
+    setText(r.letter);
+    setSource(r.source);
+  } catch {
+    buildLocal();
+    setSource('local');
+  } finally {
+    setLoading(false);
+  }
+  };
+
   return (
     <div className="space-y-3">
       <button
         type="button"
-        onClick={build}
+        onClick={generate}
+        disabled={loading}
         className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors"
       >
-        {text ? 'Regenerate Cover Letter' : 'Generate Cover Letter'}
+        {loading ? 'Writing…' : text ? 'Regenerate Cover Letter' : 'Generate Cover Letter'}
       </button>
 
       {text && (
@@ -436,7 +536,11 @@ const CoverLetterGenerator: React.FC<{ profile: StudentProfile; opp: Opportunity
             className="w-full p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-200 leading-relaxed focus:outline-none focus:border-orange-500/50"
           />
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] text-slate-500">Draft built from your profile and this listing. Personalize it before sending.</p>
+            <p className="text-[11px] text-slate-500">
+              {source === 'gemini'
+                ? 'Written by Gemini from your profile and the job page. Personalize it before sending.'
+                : 'Draft built from your profile and this listing. Personalize it before sending.'}
+            </p>
             <button
               type="button"
               onClick={() => { navigator.clipboard.writeText(text); setCopied(true); }}
@@ -452,8 +556,21 @@ const CoverLetterGenerator: React.FC<{ profile: StudentProfile; opp: Opportunity
 };
 
 /* ================= Find Alumni ================= */
-const AlumniFinder: React.FC<{ company: string; university: string }> = ({ company, university }) => {
+const AlumniFinder: React.FC<{ company: string; university: string; live: boolean }> = ({ company, university, live }) => {
   const [copied, setCopied] = useState(false);
+  const [found, setFound] = useState<{ title: string; url: string; snippet: string }[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const findProfiles = async () => {
+    setSearching(true);
+    try {
+      const r = await postJson<{ results: { title: string; url: string; snippet: string }[] }>('/api/find-alumni', { company, university });
+      setFound(r.results);
+    } catch {
+      setFound([]);
+    } finally {
+      setSearching(false);
+    }
+  };
   const parts = university.split(/[()]/).map((s) => s.trim()).filter(Boolean);
   const terms = parts.length ? parts : [university];
   const query = `site:linkedin.com/in (${terms.map((t) => `"${t}"`).join(' OR ')}) "${company}"`;
@@ -485,7 +602,25 @@ const AlumniFinder: React.FC<{ company: string; university: string }> = ({ compa
           className="px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-xs font-semibold text-slate-950">
           {copied ? 'Message copied!' : 'Copy intro message'}
         </button>
+        {live && (
+          <button type="button" onClick={findProfiles} disabled={searching}
+            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200">
+            {searching ? 'Searching…' : 'Find profiles (TinyFish)'}
+          </button>
+        )}
       </div>
+      {found && (found.length > 0 ? (
+        <ul className="space-y-2">
+          {found.map((p) => (
+            <li key={p.url}>
+              <a href={p.url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-blue-300 hover:underline">{p.title}</a>
+              <p className="text-[11px] text-slate-400">{p.snippet}</p>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-slate-400">No public profiles found. Use the search links above.</p>
+      ))}
     </div>
   );
 };
@@ -2397,7 +2532,7 @@ useEffect(() => {
                ========================================== */}
             {activePage === 'scam-detector' && (
               <div className="mt-8">
-                <SafeLinkSandbox />
+                <SafeLinkSandbox live={liveMode} />
               </div>
             )}
             {activePage === 'company-verifier' && (
@@ -2544,7 +2679,7 @@ useEffect(() => {
                         </div>
 
                         {verResult.trust_score < 80 && (
-                          <AlumniFinder company={verResult.company_name} university={profile.university} />
+                          <AlumniFinder company={verResult.company_name} university={profile.university} live={liveMode} />
                         )}
 
                         {/* Checklist Rows */}
@@ -3507,7 +3642,7 @@ useEffect(() => {
                 </button>
               </div>
 
-              <CoverLetterGenerator profile={profile} opp={selectedOpportunity} />
+              <CoverLetterGenerator profile={profile} opp={selectedOpportunity} live={liveMode} />
 
               <a
                 href={selectedOpportunity.url}
